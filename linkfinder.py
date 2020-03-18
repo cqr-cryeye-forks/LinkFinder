@@ -50,7 +50,7 @@ regex_str = r"""
 
     |
 
-    ([a-zA-Z0-9_\-/]{1,}/               # REST API (no extension) with /
+    ([a-zA-Z0-9_\-/.]{1,}/               # REST API (no extension) with /
     [a-zA-Z0-9_\-/]{3,}                 # Proper REST endpoints usually have 3+ chars
     (?:[\?|#][^"|']{0,}|))              # ? or # mark with parameters
 
