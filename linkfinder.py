@@ -23,7 +23,7 @@ except ImportError:
 try:
     from urllib.request import Request, urlopen
 except ImportError:
-    from urllib2 import Request, urlopen
+    from urllib import Request, urlopen
 
 # Regex used
 regex_str = r"""
