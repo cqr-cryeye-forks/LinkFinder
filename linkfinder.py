@@ -2,9 +2,12 @@
 # Python 3
 # LinkFinder
 # By Gerben_Javado
-
+import json
 # Fix webbrowser bug for MacOS
 import os
+from collections import defaultdict
+from typing import Any, DefaultDict
+
 os.environ["BROWSER"] = "open"
 
 # Import libraries
@@ -12,18 +15,21 @@ import re, sys, glob, html, argparse, jsbeautifier, webbrowser, subprocess, base
 
 from gzip import GzipFile
 from string import Template
+from bs4 import BeautifulSoup, PageElement, Tag
 
 try:
     from StringIO import StringIO
+
     readBytesCustom = StringIO
 except ImportError:
     from io import BytesIO
+
     readBytesCustom = BytesIO
 
 try:
     from urllib.request import Request, urlopen
 except ImportError:
-    from urllib2 import Request, urlopen
+    from urllib import Request, urlopen
 
 # Regex used
 regex_str = r"""
@@ -69,6 +75,7 @@ regex_str = r"""
 
 context_delimiter_str = "\n"
 
+
 def parser_error(errmsg):
     '''
     Error Messages
@@ -98,7 +105,8 @@ def parser_input(input):
         items = xml.etree.ElementTree.fromstring(open(args.input, "r").read())
 
         for item in items:
-            jsfiles.append({"js":base64.b64decode(item.find('response').text).decode('utf-8',"replace"), "url":item.find('url').text})
+            jsfiles.append({"js": base64.b64decode(item.find('response').text).decode('utf-8', "replace"),
+                            "url": item.find('url').text})
         return jsfiles
 
     # Method 4 - Folder with a wildcard
@@ -133,7 +141,7 @@ def send_request(url):
         sslcontext = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         response = urlopen(q, timeout=args.timeout, context=sslcontext)
     except:
-        sslcontext = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        sslcontext = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         response = urlopen(q, timeout=args.timeout, context=sslcontext)
 
     if response.info().get('Content-Encoding') == 'gzip':
@@ -144,6 +152,7 @@ def send_request(url):
         data = response.read()
 
     return data.decode('utf-8', 'replace')
+
 
 def getContext(list_matches, content, include_delimiter=0, context_delimiter_str="\n"):
     '''
@@ -181,6 +190,7 @@ def getContext(list_matches, content, include_delimiter=0, context_delimiter_str
 
     return items
 
+
 def parser_file(content, regex_str, mode=1, more_regex=None, no_dup=1):
     '''
     Parse Input
@@ -198,7 +208,7 @@ def parser_file(content, regex_str, mode=1, more_regex=None, no_dup=1):
     if mode == 1:
         # Beautify
         if len(content) > 1000000:
-            content = content.replace(";",";\r\n").replace(",",",\r\n")
+            content = content.replace(";", ";\r\n").replace(",", ",\r\n")
         else:
             content = jsbeautifier.beautify(content)
 
@@ -232,6 +242,7 @@ def parser_file(content, regex_str, mode=1, more_regex=None, no_dup=1):
 
     return filtered_items
 
+
 def cli_output(endpoints):
     '''
     Output to CLI
@@ -239,6 +250,7 @@ def cli_output(endpoints):
     for endpoint in endpoints:
         print(html.escape(endpoint["link"]).encode(
             'ascii', 'ignore').decode('utf8'))
+
 
 def html_save(html):
     '''
@@ -249,7 +261,6 @@ def html_save(html):
     os.open(os.devnull, os.O_RDWR)
     try:
         s = Template(open('%s/template.html' % sys.path[0], 'r').read())
-
         text_file = open(args.output, "wb")
         text_file.write(s.substitute(content=html).encode('utf8'))
         text_file.close()
@@ -265,6 +276,7 @@ def html_save(html):
             due to exception: %s" % (args.output, e))
     finally:
         os.dup2(hide, 1)
+
 
 def check_url(url):
     nopelist = ["node_modules", "jquery.js"]
@@ -283,6 +295,7 @@ def check_url(url):
         return url
     else:
         return False
+
 
 if __name__ == "__main__":
     # Parse command line
@@ -310,7 +323,8 @@ if __name__ == "__main__":
                         action="store", default="")
     default_timeout = 10
     parser.add_argument("-t", "--timeout",
-                        help="How many seconds to wait for the server to send data before giving up (default: " + str(default_timeout) + " seconds)",
+                        help="How many seconds to wait for the server to send data before giving up (default: " + str(
+                            default_timeout) + " seconds)",
                         default=default_timeout, type=int, metavar="<seconds>")
     args = parser.parse_args()
 
@@ -399,4 +413,49 @@ if __name__ == "__main__":
                 output += header + body
 
     if args.output != 'cli':
-        html_save(output)
+        DATA = output
+
+        soup = BeautifulSoup(DATA, 'html.parser')
+
+        data = {}
+
+        body: list[Tag] = soup.contents
+        content_of_page: list[Tag] = [item for item in body if item and item != "\n"]
+
+        result: list[dict] = []
+        result_for_one_found_file = {"endpoint_and_location": []}
+
+        for tag in content_of_page:
+            tag_name = tag.name
+            if tag_name == "h1":
+
+                if result_for_one_found_file.get("file"):
+                    result.append(result_for_one_found_file)
+                    result_for_one_found_file = {"endpoint_and_location": []}
+
+                result_for_one_found_file["file"] = tag.text.strip("File: ")
+
+            else:
+                endpoint = tag.find("a", class_="text")
+                endpoint = endpoint.text.strip()
+                endpoint_location = tag.find("div", class_="container")
+                _endpoint_location = []
+                for tag_item in endpoint_location.contents:
+                    _endpoint_location.append(tag_item.text)
+                endpoint_location = " ".join(_endpoint_location)
+
+                result_for_one_found_file["endpoint_and_location"].append(
+                    {
+                        "endpoint": endpoint.strip(),
+                        "endpoint_location": html.unescape(endpoint_location.strip()),
+                    }
+                )
+
+            if content_of_page.index(tag) == len(content_of_page) - 1:
+                result.append(result_for_one_found_file)
+
+        with open('results.json', 'w') as file:
+            json.dump(result, file)
+
+        #save result to html file
+        # html_save(output)
